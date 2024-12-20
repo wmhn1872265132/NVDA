@@ -6,14 +6,13 @@ os: Visual Studio 2022
 version: "{branch}-{build}"
 
 branches:
- only:
+ except:
+  - AppVeyor
   - master
   - beta
   - rc
   - /try-.*/
   - /release-.*/
- except:
-  - AppVeyor
 
 environment:
  PY_PYTHON: 3.11-32
