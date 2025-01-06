@@ -8,7 +8,6 @@ version: "{branch}-{build}"
 branches:
  except:
   - AppVeyor
-  - master
   - beta
   - rc
   - /try-.*/
