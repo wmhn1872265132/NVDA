@@ -70,6 +70,24 @@ build_script:
  - ps: |
      "BUILD_END, $(Get-Date -Format 'o')"| Out-File ../timing.csv -Append
 
+before_test:
+ - ps: |
+     "TESTSETUP_START, $(Get-Date -Format 'o')"| Out-File ../timing.csv -Append
+ - ps: appveyor\scripts\tests\beforeTests.ps1
+ - ps: appveyor\scripts\installNVDA.ps1
+ - ps: |
+     "TESTSETUP_END, $(Get-Date -Format 'o')"| Out-File ../timing.csv -Append
+
+test_script:
+ - ps: |
+     "TEST_START, $(Get-Date -Format 'o')"| Out-File ../timing.csv -Append
+ - ps: appveyor\scripts\tests\translationCheck.ps1
+ - ps: |
+     "TEST_END, $(Get-Date -Format 'o')"| Out-File ../timing.csv -Append
+
+after_test:
+ - ps: appveyor\scripts\tests\checkTestFailure.ps1
+
 artifacts:
  - path: output\*
  - path: output\*\*
