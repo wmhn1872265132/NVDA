@@ -112,7 +112,7 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
     - name: Store release metadata information
       id: releaseInfo
       run: |
@@ -120,6 +120,49 @@ jobs:
         Write-Output VERSION_TYPE=$env:versionType >> $env:GITHUB_OUTPUT
         Write-Output NVDA_API_VERSION=$(python -c "import sys; sys.path.append('source'); from addonAPIVersion import CURRENT; print('{}.{}.{}'.format(*CURRENT))") >> $env:GITHUB_OUTPUT
         Write-Output NVDA_API_COMPAT_TO=$(python -c "import sys; sys.path.append('source'); from addonAPIVersion import BACK_COMPAT_TO; print('{}.{}.{}'.format(*BACK_COMPAT_TO))") >> $env:GITHUB_OUTPUT
+
+  createDocs:
+    name: Create docs
+    runs-on: ${{ needs.matrix.outputs.defaultRunner }}
+    needs: matrix
+    timeout-minutes: 15
+    steps:
+    - name: Checkout NVDA
+      uses: actions/checkout@v6
+      with:
+        submodules: true
+    - name: Install Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ env.defaultPythonVersion }}
+        architecture: ${{ env.defaultArch }}
+    - name: Install the latest version of uv
+      uses: astral-sh/setup-uv@v7
+    - name: Set version variables
+      run: ci/scripts/setBuildVersionVars.ps1
+    - name: Set scons args
+      run: ci/scripts/setSconsArgs.ps1
+    - name: Set cache key for SCons MSVC Cache
+      shell: bash
+      run: echo "SCONS_CACHE_KEY=${RUNNER_OS}-${ImageVersion}" >> $GITHUB_ENV
+    # On Github Actions, it can take more than two minutes for SCons to collect information about MSVC tooling, majorly impacting build performance.
+    # This information is static for the current Github Actions runner image.
+    # Therefore, cache this information with a key scoped to the current image version, ensuring that subsequent workflow runs will be much faster.
+    - name: SCons MSVC Cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.SCONS_CACHE_MSVC_CONFIG }}
+        key: ${{ env.SCONS_CACHE_KEY }}
+    - name: Build scons docs targets
+      shell: cmd
+      run: scons %sconsDocsOutTargets% %sconsArgs% %sconsCores%
+    - name: Cache docs
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          ./output
+          ./user_docs
+        key: docs-${{ github.ref }}-${{ github.run_id }}
 
   typeCheck:
     name: Check types with Pyright
@@ -130,7 +173,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
@@ -182,7 +225,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
@@ -211,7 +254,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
@@ -239,7 +282,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
@@ -282,7 +325,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
         fail-on-cache-miss: true
     - name: Get makePot results
       uses: actions/download-artifact@v6
@@ -305,7 +348,7 @@ jobs:
   createLauncher:
     name: Create launcher
     runs-on: ${{ needs.matrix.outputs.defaultRunner }}
-    needs: [matrix, buildNVDA]
+    needs: [matrix, buildNVDA, createDocs]
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -324,7 +367,18 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
+        fail-on-cache-miss: true
+    - name: Remove user_docs folder
+      shell: bash
+      run: rm -rf ./user_docs
+    - name: Checkout cached docs
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ./output
+          ./user_docs
+        key: docs-${{ github.ref }}-${{ github.run_id }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
@@ -341,9 +395,6 @@ jobs:
       run: ci/scripts/setSconsArgs.ps1
       env:
         apiSigningToken: ${{ github.event_name == 'push' && secrets.API_SIGNING_TOKEN || '' }}
-    - name: Build scons docs targets
-      shell: cmd
-      run: scons %sconsDocsOutTargets% %sconsArgs% %sconsCores%
     # Run launcher separately as we can't safely generate that in parallel to docs scons targets (#18867)
     - name: Create launcher and controller client
       shell: cmd
@@ -424,7 +475,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
@@ -489,7 +540,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ matrix.pythonVersion }}-${{ matrix.arch }}
         fail-on-cache-miss: true
     - name: Install Windows SDK
       # Installs symstore.exe to expected location.
@@ -517,7 +568,7 @@ jobs:
     name: Check if all tests pass
     runs-on: ubuntu-latest
     if: always()
-    needs: [buildNVDA, typeCheck, checkPo, checkPot, licenseCheck, unitTests, createLauncher, systemTests, createSymbols]
+    needs: [buildNVDA, createDocs, typeCheck, checkPo, checkPot, licenseCheck, unitTests, createLauncher, systemTests, createSymbols]
     steps:
     - name: Check if all tests pass
       uses: re-actors/alls-green@v1.2.2
@@ -534,7 +585,7 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: .
-        key: ${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
+        key: build-${{ github.ref }}-${{ github.run_id }}-${{ env.defaultPythonVersion }}-${{ env.defaultArch }}
         fail-on-cache-miss: true
     - name: Install Python
       uses: actions/setup-python@v6
