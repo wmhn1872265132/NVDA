@@ -18,7 +18,6 @@ import difflib
 from dataclasses import dataclass
 import subprocess
 
-RAW_GITHUB_REPO_URL = "https://raw.githubusercontent.com/nvaccess/nvda"
 re_kcTitle = re.compile(r"^(<!--\s+KC:title:\s*)(.+?)(\s*-->)$")
 re_kcSettingsSection = re.compile(r"^(<!--\s+KC:settingsSection:\s*)(.+?)(\s*-->)$")
 # Comments that span a single line in their entirety
@@ -90,11 +89,39 @@ def getGitDir() -> str:
 
 
 def getRawGithubURLForPath(filePath: str) -> str:
+	rawGithubRepoURL = getGithubRepoURL()
 	gitDirPath = getGitDir()
 	commitID = getLastCommitID(filePath)
 	relativePath = os.path.relpath(os.path.abspath(filePath), gitDirPath)
 	relativePath = relativePath.replace("\\", "/")
-	return f"{RAW_GITHUB_REPO_URL}/{commitID}/{relativePath}"
+	return f"{rawGithubRepoURL}/{commitID}/{relativePath}"
+
+
+def getGithubRepoURL() -> str:
+	"""Get the base ``raw.githubusercontent.com`` URL for the repository.
+
+	Reads the ``origin`` remote from the local git config and converts either
+	an SSH (``git@github.com:…``) or HTTPS (``https://github.com/…``) URL to
+	``https://raw.githubusercontent.com/{owner}/{repo}``.
+
+	:return: Base raw-content URL, without a trailing slash, commit ID, or file path.
+	:raises ValueError: If the origin remote URL is not a recognised GitHub format.
+	"""
+	result = subprocess.run(
+		["git", "remote", "get-url", "origin"],
+		capture_output=True,
+		text=True,
+		check=True,
+	)
+	remote_url = result.stdout.strip()
+	# Convert SSH or HTTPS URL to raw GitHub URL format
+	if match := re.match(r"git@github\.com:(.+?)(?:\.git)?$", remote_url):
+		repo_path = match.group(1)
+	elif match := re.match(r"https://github\.com/(.+?)(?:\.git)?$", remote_url):
+		repo_path = match.group(1)
+	else:
+		raise ValueError(f"Cannot parse GitHub URL from git remote: {remote_url}")
+	return f"https://raw.githubusercontent.com/{repo_path}"
 
 
 def preprocessMarkdownLines(mdLines: Iterable[str]) -> Iterable[str]:
