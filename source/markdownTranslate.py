@@ -1,10 +1,9 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2024 NV Access Limited.
-# This file is covered by the GNU General Public License.
-# See the file COPYING for more details.
+# Copyright (C) 2024-2026 NV Access Limited
+# This file may be used under the terms of the GNU General Public License, version 2 or later, as modified by the NVDA license.
+# For full terms and any additional permissions, see the NVDA license file: https://github.com/nvaccess/nvda/blob/master/copying.txt
 
-from typing import Generator
-from collections.abc import Iterable
+from collections.abc import Generator
 import tempfile
 import os
 import contextlib
@@ -29,7 +28,7 @@ re_hiddenHeaderRow = re.compile(r"^\|\s*\.\s*\{\.hideHeaderRow\}\s*(\|\s*\.\s*)*
 re_postTableHeaderLine = re.compile(r"^(\|\s*-+\s*)+\|$")
 re_tableRow = re.compile(r"^(\|)(.+)(\|)$")
 re_translationID = re.compile(r"^(.*)\$\(ID:([0-9a-f-]+)\)(.*)$")
-re_inlineMarkdownLintComment = re.compile(r"^(.*?)(?:\s*<!-- markdownlint.*-->)(\s*)$")
+re_inlineMarkdownLintComment = re.compile(r"^(.*?)(\s*<!--\s*markdownlint.*-->)(\s*)$")
 
 
 def prettyPathString(path: str) -> str:
@@ -124,21 +123,26 @@ def getGithubRepoURL() -> str:
 	return f"https://raw.githubusercontent.com/{repo_path}"
 
 
-def preprocessMarkdownLines(mdLines: Iterable[str]) -> Iterable[str]:
-	"""
-	Preprocess markdown lines such as removing inline markdown lint comments.\
-	:param mdLines: The markdown lines to preprocess
-	:returns: The preprocessed markdown lines
-	"""
-	for mdLine in mdLines:
-		# #18982: Remove markdown lint comments completely - not needed for intermediate markdown or final html.
-		mdLine = re_inlineMarkdownLintComment.sub(r"\1\2", mdLine)
-		yield mdLine
+def getSkeletonContentFromXliffText(skeletonText: str | None) -> str:
+	"""Return skeleton content while preserving meaningful leading/trailing whitespace."""
+	if skeletonText is None:
+		return ""
+	# Skeleton content is written as <skeleton>\n{content}\n</skeleton>.
+	# Remove only wrapper newlines, not significant whitespace inside the skeleton itself.
+	if skeletonText.startswith("\n"):
+		skeletonText = skeletonText[1:]
+	if skeletonText.endswith("\n"):
+		skeletonText = skeletonText[:-1]
+	return skeletonText
 
 
 def skeletonizeLine(mdLine: str) -> str | None:
 	prefix = ""
 	suffix = ""
+	markdownLintComment = ""
+	if m := re_inlineMarkdownLintComment.match(mdLine):
+		mdLine, markdownLintComment, trailingWhitespace = m.groups()
+		mdLine = f"{mdLine}{trailingWhitespace}"
 	if (
 		mdLine.isspace()
 		or mdLine.strip() == "[TOC]"
@@ -161,7 +165,7 @@ def skeletonizeLine(mdLine: str) -> str | None:
 	elif re_comment.match(mdLine):
 		return None
 	ID = str(uuid.uuid4())
-	return f"{prefix}$(ID:{ID}){suffix}\n"
+	return f"{prefix}$(ID:{ID}){suffix}{markdownLintComment}\n"
 
 
 @dataclass
@@ -179,7 +183,7 @@ def generateSkeleton(mdPath: str, outputPath: str) -> Result_generateSkeleton:
 		open(mdPath, "r", encoding="utf8") as mdFile,
 		open(outputPath, "w", encoding="utf8", newline="") as outputFile,
 	):
-		for mdLine in preprocessMarkdownLines(mdFile.readlines()):
+		for mdLine in mdFile.readlines():
 			res.numTotalLines += 1
 			skelLine = skeletonizeLine(mdLine)
 			if skelLine:
@@ -222,7 +226,7 @@ def extractSkeleton(xliffPath: str, outputPath: str):
 		)
 		if skeletonNode is None:
 			raise ValueError("No skeleton found in xliff file")
-		skeletonContent = skeletonNode.text.strip()
+		skeletonContent = getSkeletonContentFromXliffText(skeletonNode.text)
 		outputFile.write(skeletonContent)
 		print(f"Extracted skeleton to {prettyPathString(outputPath)}")
 
@@ -241,11 +245,9 @@ def updateSkeleton(
 		origMdFile = stack.enter_context(open(origMdPath, "r", encoding="utf8"))
 		newMdFile = stack.enter_context(open(newMdPath, "r", encoding="utf8"))
 		origSkelFile = stack.enter_context(open(origSkelPath, "r", encoding="utf8"))
-		outputFile = stack.enter_context(
-			open(outputPath, "w", encoding="utf8", newline=""),
-		)
-		origMdLines = preprocessMarkdownLines(origMdFile.readlines())
-		newMdLines = preprocessMarkdownLines(newMdFile.readlines())
+		outputFile = stack.enter_context(open(outputPath, "w", encoding="utf8", newline=""))
+		origMdLines = origMdFile.readlines()
+		newMdLines = newMdFile.readlines()
 		mdDiff = difflib.ndiff(list(origMdLines), list(newMdLines))
 		origSkelLines = iter(origSkelFile.readlines())
 		for mdDiffLine in mdDiff:
@@ -254,6 +256,10 @@ def updateSkeleton(
 			if mdDiffLine.startswith(" "):
 				res.numUnchangedLines += 1
 				skelLine = next(origSkelLines)
+				# Extracted skeletons may lack a trailing newline on the last line.
+				# Preserve line boundaries when this unchanged line is followed by additions.
+				if mdDiffLine[2:].endswith("\n") and not skelLine.endswith("\n"):
+					skelLine = f"{skelLine}\n"
 				if re_translationID.match(skelLine):
 					res.numUnchangedTranslationPlaceholders += 1
 				outputFile.write(skelLine)
@@ -325,7 +331,7 @@ def generateXliff(
 		res.numTranslatableStrings = 0
 		for lineNo, (mdLine, skelLine) in enumerate(
 			zip_longest(
-				preprocessMarkdownLines(mdFile.readlines()),
+				mdFile.readlines(),
 				skelContent.splitlines(keepends=True),
 			),
 			start=1,
@@ -454,11 +460,11 @@ def translateXliff(
 		)
 		if skeletonNode is None:
 			raise ValueError("No skeleton found in xliff file")
-		skeletonContent = skeletonNode.text.strip()
+		skeletonContent = getSkeletonContentFromXliffText(skeletonNode.text)
 		for lineNo, (skelLine, pretranslatedLine) in enumerate(
 			zip_longest(
 				skeletonContent.splitlines(),
-				preprocessMarkdownLines(pretranslatedMdFile.readlines()),
+				pretranslatedMdFile.readlines(),
 			),
 			start=1,
 		):
@@ -544,7 +550,7 @@ def generateMarkdown(
 		)
 		if skeletonNode is None:
 			raise ValueError("No skeleton found in xliff file")
-		skeletonContent = skeletonNode.text.strip()
+		skeletonContent = getSkeletonContentFromXliffText(skeletonNode.text)
 		for lineNum, line in enumerate(skeletonContent.splitlines(keepends=True), 1):
 			res.numTotalLines += 1
 			if m := re_translationID.match(line):
@@ -605,8 +611,8 @@ def ensureMarkdownFilesMatch(path1: str, path2: str, allowBadAnchors: bool = Fal
 		file2 = stack.enter_context(open(path2, "r", encoding="utf8"))
 		for lineNo, (line1, line2) in enumerate(
 			zip_longest(
-				preprocessMarkdownLines(file1.readlines()),
-				preprocessMarkdownLines(file2.readlines()),
+				file1.readlines(),
+				file2.readlines(),
 			),
 			start=1,
 		):
