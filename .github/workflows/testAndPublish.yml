@@ -413,7 +413,7 @@ jobs:
         - name: Build NVDAController client
           shell: cmd
           run: |
-            TIMEOUT /T 5 /NOBREAK>Nul
+            TIMEOUT /T 5 /NOBREAK
             scons client %sconsArgs% %sconsCores%
         - name: Create NVDA launcher
           shell: cmd
