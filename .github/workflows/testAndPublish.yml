@@ -413,7 +413,7 @@ jobs:
         - name: Build NVDAController client
           shell: cmd
           run: |
-            TIMEOUT /T 5 /NOBREAK
+            PowerShell -Command "Start-Sleep -Seconds 5"
             scons client %sconsArgs% %sconsCores%
         - name: Create NVDA launcher
           shell: cmd
