@@ -411,7 +411,9 @@ jobs:
     - parallel:
         - name: Build NVDAController client
           shell: cmd
-          run: scons client %sconsArgs% %sconsCores%
+          run: |
+            TIMEOUT /T 5 /NOBREAK>Nul
+            scons client %sconsArgs% %sconsCores%
         - name: Create NVDA launcher
           shell: cmd
           run: scons %sconsLauncherOutTargets% %sconsArgs%
