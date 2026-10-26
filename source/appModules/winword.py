@@ -8,10 +8,12 @@ Word and Outlook share a lot of code and components. This app module gathers the
 Microsoft Word only.
 """
 
-import appModuleHandler
+import appModuleHandler  # noqa: I001
+import config
 from scriptHandler import script
 import ui
 from logHandler import log
+import mathPres
 from NVDAObjects.IAccessible.winword import WordDocument as IAccessibleWordDocument
 from NVDAObjects.UIA.wordDocument import WordDocument as UIAWordDocument
 from NVDAObjects.window.winword import (
@@ -57,6 +59,17 @@ class AppModule(appModuleHandler.AppModule):
 		if UIAWordDocument in clsList or IAccessibleWordDocument in clsList:
 			clsList.insert(0, WinwordWordDocument)
 
+	def event_appModule_gainFocus(self):
+		if config.conf["math"]["other"]["useWordNativeMath"]:
+			mathPres.terminate()
+
+	def event_appModule_loseFocus(self):
+		mathPres.initialize()
+
+	def terminate(self):
+		mathPres.initialize()
+		super().terminate()
+
 
 class WinwordWordDocument(WordDocument):
 	def _get_description(self) -> str:
@@ -68,6 +81,19 @@ class WinwordWordDocument(WordDocument):
 			return ViewType(curView).displayString
 		except AttributeError:
 			return super()._get_description()
+
+	@script(gestures=["kb:control+alt+o", "kb:control+alt+p"])
+	def script_changeViewType(self, gesture: "inputCore.InputGesture") -> None:
+		if not self.WinwordWindowObject:
+			# We cannot fetch the Word object model, so we therefore cannot report the status change.
+			# The object model may be unavailable because it's within Windows Defender Application Guard.
+			# In this case, just let the gesture through and don't report anything.
+			return gesture.send()
+		val = self._WaitForValueChangeForAction(
+			lambda: gesture.send(),
+			lambda: self.WinwordWindowObject.view.Type,
+		)
+		ui.message(ViewType(val).displayString)
 
 	@script(gesture="kb:control+shift+e")
 	def script_toggleChangeTracking(self, gesture):
@@ -88,7 +114,14 @@ class WinwordWordDocument(WordDocument):
 			ui.message(_("Change tracking off"))
 
 	@script(
-		gestures=["kb:alt+shift+-", "kb:alt+shift+=", "kb:alt+shift+numpadPlus", "kb:alt+shift+numpadMinus"],
+		gestures=[
+			"kb:alt+shift+-",
+			"kb:alt+shift+=",
+			"kb:alt+shift+numpadPlus",
+			"kb:alt+shift+numpadMinus",
+			"kb:numLock+shift+alt+numpadPlus",
+			"kb:numLock+shift+alt+numpadMinus",
+		],
 	)
 	def script_collapseOrExpandHeading(self, gesture: "inputCore.InputGesture") -> None:
 		if not self.WinwordSelectionObject:
@@ -129,7 +162,7 @@ class WinwordWordDocument(WordDocument):
 			msg = _("Expanded")
 		ui.message(msg)
 
-	__gestures = {
+	__gestures = {  # noqa: RUF012
 		"kb:control+shift+b": "toggleBold",
 		"kb:control+shift+w": "toggleUnderline",
 		"kb:control+shift+a": "toggleCaps",

@@ -16,7 +16,7 @@ This test suite covers:
  - clearQueue utility
 """
 
-import ast
+import ast  # noqa: I001
 import socket
 import ssl
 import threading
@@ -27,7 +27,7 @@ from unittest import mock
 import wx
 
 # Import classes from the transport module.
-from remoteClient.transport import (
+from _remoteClient.transport import (
 	PROTOCOL_VERSION,
 	ConnectorThread,
 	RelayTransport,
@@ -37,6 +37,7 @@ from remoteClient.transport import (
 	Transport,
 	clearQueue,
 )
+import logHandler
 
 
 # ---------------------------------------------------------------------------
@@ -48,14 +49,14 @@ class FakeSerializer:
 
 		if isinstance(type, enum.Enum):
 			type = type.value
-		return f"type={type}|{kwargs}\n".encode("utf-8")
+		return f"type={type}|{kwargs}\n".encode()
 
 	def deserialize(self, line: bytes):
 		s = line.decode("utf-8").strip()
 		if not s.startswith("type="):
 			return {}
 		rest = s[len("type=") :]
-		typePart, sep, kwargPart = rest.partition("|")
+		typePart, sep, kwargPart = rest.partition("|")  # noqa: RUF059
 		kwargs = ast.literal_eval(kwargPart) if kwargPart else {}
 		kwargs["type"] = typePart
 		return kwargs
@@ -150,11 +151,11 @@ class TestTransportSendAndQueue(unittest.TestCase):
 		self.assertEqual(result["type"], "TEST_TYPE")
 		self.assertEqual(result["key"], 123)
 
-	def test_sendWhenNotConnectedLogsError(self):
+	def test_sendWhenNotConnectedLogsWarning(self):
 		self.transport.connected = False
-		with mock.patch("remoteClient.transport.log.error") as mockError:
+		with mock.patch("_remoteClient.transport.log.debugWarning") as mockWarning:
 			self.transport.send("TEST", a=1)
-		mockError.assert_called_once()
+		mockWarning.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +249,7 @@ class TestSendQueue(unittest.TestCase):
 		self.transport.queue.put(item1)
 
 		def fakeSendall(data):
-			raise socket.error("Test error")
+			raise OSError("Test error")
 
 		self.transport.serverSock.sendall = fakeSendall
 		# Should complete without raising further exception
@@ -301,20 +302,16 @@ class TestTCPTransportCreateOutboundSocket(unittest.TestCase):
 		self.host = "localhost"
 		self.port = 8090
 
-	@mock.patch("test.mock_socket.socket", autospec=True)
-	def test_createOutboundSocketOnion(self, mockSocket):
+	def test_createOutboundSocketOnion(self):
 		t = TCPTransport(self.serializer, (self.host + ".onion", self.port))
 		fakeSocket = DummyTCPSocket()
-		mockSocket.return_value = fakeSocket
 		sock = t.createOutboundSocket(self.host + ".onion", self.port, insecure=False)
 		self.assertFalse(fakeSocket.connected)
 		self.assertTrue(isinstance(sock, ssl.SSLSocket))
 
-	@mock.patch("test.mock_socket.socket", autospec=True)
-	def test_createOutboundSocketRegularInsecure(self, mockSocket):
+	def test_createOutboundSocketRegularInsecure(self):
 		t = TCPTransport(self.serializer, (self.host, self.port))
 		fakeSocket = DummyTCPSocket()
-		mockSocket.return_value = fakeSocket
 		sock = t.createOutboundSocket(self.host, self.port, insecure=True)
 		self.assertFalse(fakeSocket.connected)
 		self.assertTrue(isinstance(sock, ssl.SSLSocket))
@@ -369,7 +366,7 @@ class DummyConnectorTransport(Transport):
 
 	def run(self):
 		self.runCalled += 1
-		raise socket.error("Simulated socket error")
+		raise OSError("Simulated socket error")
 
 	def processIncomingSocketData(self):
 		pass
@@ -389,7 +386,7 @@ class TestConnectorThread(unittest.TestCase):
 		for _ in range(iterations):
 			try:
 				fakeTransport.run()
-			except socket.error:
+			except OSError:
 				pass
 		connector.running = False
 		self.assertEqual(fakeTransport.runCalled, iterations)
@@ -463,18 +460,18 @@ class TestParseErrorHandling(unittest.TestCase):
 		self.transport.inboundHandlers = {}
 
 	def test_parseNoType(self):
-		with self.assertLogs(level="WARN") as cm:
+		with self.assertLogs(logHandler.log, level="WARN") as cm:
 			self.transport.parse(b"invalid message\n")
 			self.assertTrue(any("Received message without type" in log for log in cm.output))
 
 	def test_parseInvalidType(self):
-		with self.assertLogs(level="WARN") as cm:
+		with self.assertLogs(logHandler.log, level="WARN") as cm:
 			message = self.serializer.serialize(type="NONEXISTENT", a=10)
 			self.transport.parse(message)
 			self.assertTrue(any("Received message with invalid type" in log for log in cm.output))
 
 	def test_parseUnhandledType(self):
-		with self.assertLogs(level="WARN") as cm:
+		with self.assertLogs(logHandler.log, level="WARN") as cm:
 			message = self.serializer.serialize(type=RemoteMessageType.GENERATE_KEY, b=10)
 			self.transport.parse(message)
 			self.assertTrue(any("Received message with unhandled type" in log for log in cm.output))

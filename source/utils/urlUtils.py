@@ -3,12 +3,12 @@
 # See the file COPYING for more details.
 # Copyright (C) 2024 NV Access Limited, Noelia Ruiz Martínez, Leonard de Ruijter
 
-import controlTypes
+import controlTypes  # noqa: I001
 from urllib.parse import ParseResult, urlparse, urlunparse
 from dataclasses import dataclass
 from logHandler import log
 
-__all__ = ["getLinkType", "isSamePageURL", "_LinkData"]
+__all__ = ["_LinkData", "getLinkType", "isSamePageURL"]
 
 
 def getLinkType(targetURL: str, rootURL: str) -> controlTypes.State | None:
@@ -40,10 +40,18 @@ def isSamePageURL(targetURLOnPage: str, rootURL: str) -> bool:
 
 	validSchemes = ("http", "https", "file")
 	# Parse the URLs
-	parsedTargetURLOnPage: ParseResult = urlparse(targetURLOnPage)
+	try:
+		parsedTargetURLOnPage: ParseResult = urlparse(targetURLOnPage)
+	except ValueError:
+		log.debugWarning(f"Invalid target URL: {targetURLOnPage}", exc_info=True)
+		return False
 	if parsedTargetURLOnPage.scheme not in validSchemes:
 		return False
-	parsedRootURL: ParseResult = urlparse(rootURL)
+	try:
+		parsedRootURL: ParseResult = urlparse(rootURL)
+	except ValueError:
+		log.debugWarning(f"Invalid root URL: {rootURL}", exc_info=True)
+		return False
 	if parsedRootURL.scheme not in validSchemes:
 		return False
 

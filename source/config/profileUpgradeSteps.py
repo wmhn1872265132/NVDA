@@ -1,5 +1,5 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2016-2025 NV Access Limited, Bill Dengler, Cyrille Bougot, Łukasz Golonka, Leonard de Ruijter, Cary-rowen
+# Copyright (C) 2016-2026 NV Access Limited, Bill Dengler, Cyrille Bougot, Łukasz Golonka, Leonard de Ruijter, Cary-rowen
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
 
@@ -24,11 +24,13 @@ from config.configFlags import (
 	OutputMode,
 	ReportCellBorders,
 	ReportLineIndentation,
+	ReportSpellingErrors,
 	ReportTableHeaders,
 	ShowMessages,
 	TetherTo,
 	TypingEcho,
 )
+from config.featureFlagEnums import BrailleTextWrapFlag
 
 
 def upgradeConfigFrom_0_to_1(profile: ConfigObj) -> None:
@@ -462,7 +464,7 @@ def _friendlyNameToEndpointId(friendlyName: str) -> str | None:
 	:param friendlyName: Friendly name of the device to search for.
 	:return: Endpoint ID string of the best match device, or `None` if no device with a matching friendly name is available.
 	"""
-	from utils.mmdevice import getOutputDevices
+	from utils.mmdevice import getOutputDevices  # noqa: I001
 	from pycaw.constants import DEVICE_STATE
 
 	states = (DEVICE_STATE.ACTIVE, DEVICE_STATE.UNPLUGGED, DEVICE_STATE.DISABLED, DEVICE_STATE.NOTPRESENT)
@@ -513,10 +515,10 @@ def upgradeConfigFrom_15_to_16(profile: ConfigObj) -> None:
 		return
 
 	try:
-		remoteConfig = ConfigObj(remoteIniPath, encoding="UTF-8")
 		log.debug(f"Loading remote config from {remoteIniPath}")
+		remoteConfig = ConfigObj(remoteIniPath, encoding="UTF-8")
 	except Exception:
-		log.error("Error loading remote.ini", exc_info=True)
+		log.error("Error loading remote.ini", exc_info=True)  # noqa: G201
 		return
 
 	# Create remote section if it doesn't exist
@@ -537,4 +539,196 @@ def upgradeConfigFrom_15_to_16(profile: ConfigObj) -> None:
 		os.rename(remoteIniPath, backupPath)
 		log.debug(f"Backed up remote.ini to {backupPath}")
 	except Exception:
-		log.error("Error backing up remote.ini after migration", exc_info=True)
+		log.error("Error backing up remote.ini after migration", exc_info=True)  # noqa: G201
+
+
+def upgradeConfigFrom_16_to_17(profile: ConfigObj) -> None:
+	"""Rename some of Remote Access's config items.
+
+	Provided as a separate upgrade step so that alpha users don't lose any of their configuration of Remote Access.
+	"""
+	RENAMED_SECTIONS: dict[str, str] = {
+		"controlserver": "controlServer",
+		"seen_motds": "seenMOTDs",
+		"trusted_certs": "trustedCertificates",
+	}
+	RENAMED_ITEMS: dict[str, dict[str, str]] = {
+		"connections": {"last_connected": "lastConnected"},
+		"controlServer": {"connection_type": "connectionMode", "self_hosted": "selfHosted"},
+	}
+	if "remote" not in profile:
+		log.debug("No remote section in config, no action taken.")
+		return
+
+	remoteConfig = profile["remote"]
+	# Rename sections whose names have changed.
+	for oldSectionKey, newSectionKey in RENAMED_SECTIONS.items():
+		if oldSectionKey in remoteConfig:
+			remoteConfig[newSectionKey] = remoteConfig[oldSectionKey]
+			del remoteConfig[oldSectionKey]
+			log.debug(f"Renamed config['remote']['{oldSectionKey}'] to config['remote']['{newSectionKey}'].")
+
+	# Rename items (leaves) whose names have changed.
+	for sectionKey, renamedItems in RENAMED_ITEMS.items():
+		if (section := remoteConfig.get(sectionKey)) is not None:
+			for oldItemKey, newItemKey in renamedItems.items():
+				if oldItemKey in section:
+					section[newItemKey] = section[oldItemKey]
+					del section[oldItemKey]
+					log.debug(
+						f"Renamed config['remote']['{sectionKey}']['{oldItemKey}'] to config['remote']['{sectionKey}']['{newItemKey}'].",
+					)
+
+
+def upgradeConfigFrom_17_to_18(profile: ConfigObj) -> None:
+	"""Add dotPad to excluded braille displays by default due to generic USB PID/VID."""
+	# Only add to excludedDisplays if the auto section doesn't exist or excludedDisplays is empty/default
+	if "braille" not in profile:
+		profile["braille"] = {}
+	if "auto" not in profile["braille"]:
+		profile["braille"]["auto"] = {}
+	if "excludedDisplays" not in profile["braille"]["auto"]:
+		profile["braille"]["auto"]["excludedDisplays"] = []
+
+	# Only add dotPad if it's not already in the list
+	excludedDisplays = profile["braille"]["auto"]["excludedDisplays"]
+
+	if "dotPad" not in excludedDisplays:
+		excludedDisplays.append("dotPad")
+		log.debug(
+			"dotPad added to braille display auto detection excluded displays due to generic USB PID/VID. "
+			f"List is now: {excludedDisplays}",
+		)
+
+
+def upgradeConfigFrom_18_to_19(profile: ConfigObj):
+	"""Convert report spelling errors configurations from boolean to integer values."""
+
+	section = "documentFormatting"
+	key = "reportSpellingErrors"
+	newKey = "reportSpellingErrors2"
+	try:
+		oldValue: bool = profile[section].as_bool(key)
+	except KeyError:
+		log.debug(f"'{key}' not present in config, no action taken.")
+		return
+	except ValueError:
+		log.error(f"'{key}' is not a boolean, got {profile[section][key]!r}. No action taken.")
+		return
+
+	newValue = ReportSpellingErrors.SPEECH.value if oldValue else ReportSpellingErrors.OFF.value
+	profile[section][newKey] = newValue
+	del profile[section][key]
+	log.debug(
+		f"Converted '{key}' with value {oldValue} to '{newKey}' with value {newValue}"
+		f" ({ReportSpellingErrors(newValue).name}). The old key '{key}' has been deleted.",
+	)
+
+
+def upgradeConfigFrom_19_to_20(profile: ConfigObj):
+	"""Move Screen Curtain settings from vision to root."""
+	try:
+		# We must copy the old settings,
+		# otherwise configobj will write the new settings as a subsection of the last root section in the config
+		profile["screenCurtain"] = profile["vision"]["screenCurtain"].copy()
+	except KeyError:
+		log.debug("No vision enhancement provider-based Screen Curtain settings exist. No action taken.")
+		return
+	del profile["vision"]["screenCurtain"]
+	log.debug("Moved Screen Curtain settings from ['vision']['screenCurtain'] to ['screenCurtain'].")
+
+
+def upgradeConfigFrom_20_to_21(profile: ConfigObj):
+	"""Redirect old sapi4 and sapi5 config to 32 bit versions."""
+	speechConf = profile.get("speech")
+	if not speechConf:
+		log.debug("Profile's speech section is empty or does not exist. No action taken.")
+		return
+	synth = speechConf.get("synth")
+	if synth == "sapi4":
+		synth = "sapi4_32"
+		log.debug("Switching configured synthesizer from sapi4 to sapi4_32")
+		speechConf["synth"] = synth
+	elif synth == "sapi5":
+		synth = "sapi5_32"
+		log.debug("Switching configured synthesizer from sapi5 to sapi5_32")
+		speechConf["synth"] = synth
+	sapi4Conf = speechConf.get("sapi4")
+	if sapi4Conf:
+		speechConf["sapi4_32"] = sapi4Conf
+		del speechConf["sapi4"]
+		log.debug("Moved old sapi4 configuration values to sapi4_32")
+	sapi5Conf = speechConf.get("sapi5")
+	if sapi5Conf:
+		speechConf["sapi5_32"] = sapi5Conf
+		del speechConf["sapi5"]
+		log.debug("Moved old sapi5 configuration values to sapi5_32")
+
+
+def upgradeConfigFrom_21_to_22(profile: ConfigObj):
+	"""Change math speech language from 'Auto' to 'en'."""
+	mathConf = profile.get("math")
+	if not mathConf:
+		log.debug("No math section in profile. No action taken.")
+		return
+	speechConf = mathConf.get("speech")
+	if not speechConf:
+		log.debug("No math.speech section in profile. No action taken.")
+		return
+	language = speechConf.get("language")
+	if language is None:
+		log.debug("math.speech.language not set in profile. No action taken.")
+		return
+	if not isinstance(language, str):
+		log.error(
+			f"Invalid math.speech.language value during profile upgrade: "
+			f"expected str, got {type(language).__name__}. Skipping upgrade step.",
+		)
+		return
+	if language.casefold() == "auto":
+		speechConf["language"] = "en"
+		log.debug("Changed math.speech.language from 'Auto' to 'en'.")
+
+
+def upgradeConfigFrom_22_to_23(profile: ConfigObj):
+	# No-op to resolve upgrade conflicts between alpha/beta in 2026.2 release cycle
+	pass
+
+
+def upgradeConfigFrom_23_to_24(profile: ConfigObj):
+	"""Upgrade configuration from schema version 23 to 24."""
+	magnifierConf = profile.get("magnifier")
+	if not magnifierConf:
+		log.debug("No magnifier section in profile. No action taken.")
+		return
+	try:
+		del magnifierConf["isTrueCentered"]
+	except KeyError:
+		log.debug("No isTrueCentered setting in profile. No action taken.")
+	if magnifierConf.get("fullscreenMode") == "border":
+		del magnifierConf["fullscreenMode"]
+
+
+def upgradeConfigFrom_24_to_25(profile: ConfigObj) -> None:
+	"""
+	If the wordWrap braille config flag is explicitly set in a profile,
+	set the new text wrap option to word boundaries,
+	rather than the new default of at word boundaries.
+	"""
+	section = "braille"
+	key = "wordWrap"
+	newKey = "textWrap"
+	try:
+		oldValue: bool = profile[section].as_bool(key)
+	except KeyError:
+		log.debug(f"'{key}' not present in config, no action taken.")
+		return
+	except ValueError:
+		log.error(f"'{key}' is not a boolean, got {profile[section][key]!r}. No action taken.")
+		return
+
+	newValue = BrailleTextWrapFlag.AT_WORD_BOUNDARIES.name if oldValue else BrailleTextWrapFlag.NONE.name
+	profile[section][newKey] = newValue
+	log.debug(
+		f"Converted '{key}' with value {oldValue} to '{newKey}' with value {newValue}.",
+	)

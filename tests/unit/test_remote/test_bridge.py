@@ -3,9 +3,9 @@
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
 
-import unittest
-from remoteClient.bridge import BridgeTransport
-from remoteClient.transport import Transport, RemoteMessageType
+import unittest  # noqa: I001
+from _remoteClient.bridge import BridgeTransport
+from _remoteClient.transport import Transport, RemoteMessageType
 
 
 # A fake transport that implements minimal Transport interface for testing BridgeTransport.

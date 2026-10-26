@@ -1,17 +1,16 @@
-# pythonConsole.py
 # A part of NonVisual Desktop Access (NVDA)
 # This file is covered by the GNU General Public License.
 # See the file COPYING for more details.
-# Copyright (C) 2008-2024 NV Access Limited, Leonard de Ruijter, Julien Cochuyt, Cyrille Bougot
+# Copyright (C) 2008-2025 NV Access Limited, Leonard de Ruijter, Julien Cochuyt, Cyrille Bougot
 
 """Provides an interactive Python console which can be run from within NVDA.
 To use, call L{initialize} to create a singleton instance of the console GUI. This can then be accessed externally as L{consoleUI}.
 """
 
-import watchdog
+import watchdog  # noqa: I001
 import builtins
 import os
-from typing import Sequence
+from collections.abc import Sequence
 import code
 import codeop
 import sys
@@ -31,7 +30,7 @@ import gui.contextHelp
 import textInfos
 
 
-class HelpCommand(object):
+class HelpCommand:
 	"""
 	Emulation of the 'help' command found in the Python interactive shell.
 	"""
@@ -45,7 +44,7 @@ class HelpCommand(object):
 		return pydoc.help(*args, **kwargs)
 
 
-class ExitConsoleCommand(object):
+class ExitConsoleCommand:
 	"""
 	An object that can be used as an exit command that can close the console or print a friendly message for its repr.
 	"""
@@ -74,15 +73,13 @@ class Completer(rlcompleter.Completer):
 		This causes serious issues for baseObject.Getter descriptors
 		when a getter raises NotImplementedError, for example (#15872).
 		"""
-		import re
-
 		m = re.match(r"(\w+(\.\w+)*)\.(\w*)", text)
 		if not m:
 			return []
 		expr, attr = m.group(1, 3)
 		try:
 			thisobject = eval(expr, self.namespace)
-		except Exception:
+		except Exception:  # noqa: BLE001
 			return []
 
 		# get the content of the object, except __builtins__
@@ -106,7 +103,7 @@ class Completer(rlcompleter.Completer):
 					match = f"{expr}.{word}"
 					try:
 						val = getattr(thisobject, word)
-					except Exception:
+					except Exception:  # noqa: BLE001, S110
 						pass  # Include even if attribute not set
 					else:
 						match = self._callable_postfix(val, match)
@@ -186,7 +183,7 @@ class PythonConsole(code.InteractiveConsole, AutoPropertyObject):
 
 	def push(self, line):
 		if self._echo:
-			self._echo("%s %s\n" % (self.prompt, line))
+			self._echo("%s %s\n" % (self.prompt, line))  # noqa: UP031
 		# Capture stdout/stderr output as well as code interaction.
 		stdout, stderr = sys.stdout, sys.stderr
 		sys.stdout = sys.stderr = self
@@ -204,10 +201,10 @@ class PythonConsole(code.InteractiveConsole, AutoPropertyObject):
 		self.prompt = "..." if more else ">>>"
 		return more
 
-	def showsyntaxerror(self, filename=None):
+	def showsyntaxerror(self, filename: str | None = None, **kwargs):
 		excepthook = sys.excepthook
 		sys.excepthook = sys.__excepthook__
-		super().showsyntaxerror(filename=filename)
+		super().showsyntaxerror(filename=filename, **kwargs)
 		sys.excepthook = excepthook
 
 	def showtraceback(self):
@@ -280,7 +277,7 @@ class PythonConsole(code.InteractiveConsole, AutoPropertyObject):
 			try:
 				value = getter()
 			except Exception:
-				log.error(f"Unable to set {name} snapshot variable for python console.", exc_info=True)
+				log.error(f"Unable to set {name} snapshot variable for python console.", exc_info=True)  # noqa: G201
 				value = None
 			self._namespaceSnapshotVars[name] = value
 		self.namespace.update(self._namespaceSnapshotVars)
@@ -581,7 +578,7 @@ def activate():
 	This shows the GUI and brings it to the foreground if possible.
 	@precondition: L{initialize} has been called.
 	"""
-	global consoleUI
+	global consoleUI  # noqa: PLW0602
 	consoleUI.Raise()
 	# There is a MAXIMIZE style which can be used on the frame at construction, but it doesn't seem to work the first time it is shown,
 	# probably because it was in the background.

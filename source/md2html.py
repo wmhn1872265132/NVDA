@@ -1,28 +1,53 @@
 # A part of NonVisual Desktop Access (NVDA)
-# Copyright (C) 2023-2024 NV Access Limited
+# Copyright (C) 2023-2025 NV Access Limited
 # This file may be used under the terms of the GNU General Public License, version 2 or later.
 # For more details see: https://www.gnu.org/licenses/gpl-2.0.html
 
-import argparse
+import argparse  # noqa: I001
 from copy import deepcopy
 import io
 import re
 import shutil
+from typing import Any
+from l2m4m import LaTeX2MathMLExtension
 
-DEFAULT_EXTENSIONS = frozenset(
-	{
-		# Supports tables, HTML mixed with markdown, code blocks, custom attributes and more
-		"markdown.extensions.extra",
-		# Allows TOC with [TOC]"
-		"markdown.extensions.toc",
-		# Makes list behaviour better, including 2 space indents by default
-		"mdx_truly_sane_lists",
-		# External links will open in a new tab, and title will be set to the link text
-		"markdown_link_attr_modifier",
-		# Adds links to GitHub authors, issues and PRs
-		"mdx_gh_links",
-	},
+_DEFAULT_EXTENSIONS_ORDERED = (
+	# Supports tables, HTML mixed with markdown, code blocks, custom attributes and more
+	"markdown.extensions.extra",
+	# Used to preserve tabs in code blocks
+	"pymdownx.superfences",
+	# Allows TOC with [TOC]"
+	"markdown.extensions.toc",
+	# Makes list behaviour better, including 2 space indents by default
+	"mdx_truly_sane_lists",
+	# External links will open in a new tab, and title will be set to the link text
+	"markdown_link_attr_modifier",
+	# Adds links to GitHub authors, issues and PRs
+	"mdx_gh_links",
+	# Converts LaTeX to MathML
+	LaTeX2MathMLExtension(),
 )
+"""
+Default extensions to use for markdown conversion.
+Order is important, as some extensions depend on or affect others.
+"""
+
+
+def __getattr__(attrName: str) -> Any:
+	"""Module level `__getattr__` used to preserve backward compatibility."""
+	if attrName == "DEFAULT_EXTENSIONS":
+		# Note: this should only log in situations where it will not be excessively noisy.
+		from logHandler import log
+
+		log.warning(
+			"Importing DEFAULT_EXTENSIONS from here is deprecated. Importing from md2html is discouraged. ",
+			# Include stack info so testers can report warning to add-on author.
+			stack_info=True,
+		)
+		# Return a frozenset to match the API of the deprecated DEFAULT_EXTENSIONS symbol.
+		return frozenset(_DEFAULT_EXTENSIONS_ORDERED)
+	raise AttributeError(f"module {__name__!r} has no attribute {attrName!r}")
+
 
 EXTENSIONS_CONFIG = {
 	"markdown_link_attr_modifier": {
@@ -32,6 +57,9 @@ EXTENSIONS_CONFIG = {
 	"mdx_gh_links": {
 		"user": "nvaccess",
 		"repo": "nvda",
+	},
+	"pymdownx.superfences": {
+		"preserve_tabs": True,
 	},
 }
 
@@ -45,6 +73,7 @@ HTML_HEADERS = """
 <title>{title}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="styles.css">
+<link rel="shortcut icon" href="favicon.ico">
 {extraStylesheet}
 </head>
 <body>
@@ -56,7 +85,7 @@ def _getTitle(mdBuffer: io.StringIO, isKeyCommands: bool = False) -> str:
 		TITLE_RE = re.compile(r"^<!-- KC:title: (.*) -->$")
 		# Make next read at start of buffer
 		mdBuffer.seek(0)
-		for line in mdBuffer.readlines():
+		for line in mdBuffer:
 			match = TITLE_RE.match(line.strip())
 			if match:
 				return match.group(1)
@@ -96,21 +125,39 @@ def _createAttributeFilter() -> dict[str, set[str]]:
 	# link rel and target is set by markdown_link_attr_modifier
 	allowedAttributes["a"].update({"rel", "target"})
 
+	if "math" not in allowedAttributes:
+		allowedAttributes["math"] = set()
+	allowedAttributes["math"].add("display")
+
 	return allowedAttributes
 
 
+def _attributeFilter(tag: str, attr: str, value: str) -> str | None:
+	# Specifying display=inline is redundant
+	if tag == "math" and attr == "display":
+		return value if value == "block" else None
+	return value
+
+
+def _createTagFilter() -> set[str]:
+	import nh3
+
+	return nh3.ALLOWED_TAGS | {"math", "mrow", "mfrac", "mi", "mn", "mo", "msub"}
+
+
 ALLOWED_ATTRIBUTES = _createAttributeFilter()
+ALLOWED_TAGS = _createTagFilter()
 
 
 def _generateSanitizedHTML(md: str, isKeyCommands: bool = False) -> str:
 	import markdown
 	import nh3
 
-	extensions = set(DEFAULT_EXTENSIONS)
+	extensions = list(_DEFAULT_EXTENSIONS_ORDERED)
 	if isKeyCommands:
 		from keyCommandsDoc import KeyCommandsExtension
 
-		extensions.add(KeyCommandsExtension())
+		extensions.append(KeyCommandsExtension())
 
 	htmlOutput = markdown.markdown(
 		text=md,
@@ -121,7 +168,9 @@ def _generateSanitizedHTML(md: str, isKeyCommands: bool = False) -> str:
 	# Sanitize html output from markdown to prevent XSS from translators
 	htmlOutput = nh3.clean(
 		htmlOutput,
+		tags=ALLOWED_TAGS,
 		attributes=ALLOWED_ATTRIBUTES,
+		attribute_filter=_attributeFilter,
 		# link rel is handled by markdown_link_attr_modifier
 		link_rel=None,
 		# Keep key command comments and similar
@@ -132,7 +181,7 @@ def _generateSanitizedHTML(md: str, isKeyCommands: bool = False) -> str:
 
 
 def main(source: str, dest: str, lang: str = "en", docType: str | None = None):
-	print(f"Converting {docType or 'document'} at {source} to {dest}, {lang=}")
+	print(f"Converting {docType or 'document'} ({lang=}) at {source} to {dest}")
 	isUserGuide = docType == "userGuide"
 	isDevGuide = docType == "developerGuide"
 	isChanges = docType == "changes"

@@ -36,7 +36,8 @@ git pull
 
 ## Supported Operating Systems
 
-Although NVDA can run on any Windows version starting from Windows 8.1, building NVDA from source is currently limited to only Windows 10 and above.
+At a minimum, running and building NVDA from source requires Windows 10 (Version 1507).
+We recommend Windows 11 to work with features under active support, and if you need to use Windows 10, use Version 22H2.
 
 ## Dependencies
 
@@ -48,29 +49,32 @@ The following dependencies need to be installed on your system:
 
 #### Python
 
-[Python](https://www.python.org/), version 3.11, 32 bit.
+[Python](https://www.python.org/), version 3.13.15, 64-bit.
+Install the python version listed in [.python-versions](../../.python-versions)
 
-To replicate the production build environment, use the 3.11.x minor version of Python that [AppVeyor uses for the Visual Studio 2022 environment](https://www.appveyor.com/docs/windows-images-software/#python).
+#### uv
+
+[uv](https://docs.astral.sh/uv/) is used as package and project manager.
 
 #### Microsoft Visual Studio
 
-* Microsoft Visual Studio 2022
-	* To replicate the production build environment, use the [version of Visual Studio 2022 that AppVeyor is using](https://www.appveyor.com/docs/windows-images-software/#visual-studio-2022).
-	* If you don't use the Visual Studio IDE itself, you can download the [build tools](https://aka.ms/vs/17/release/vs_BuildTools.exe).
-	* If you do intend to use the Visual Studio IDE (not required for NVDA development), you can download [the community version](https://aka.ms/vs/17/release/vs_Community.exe), which is also used by AppVeyor.
-		* The Professional and Enterprise versions are also supported.
-		* Preview versions are *not* supported.
+* Microsoft Visual Studio 2022 or 2026
+  * To replicate the production build environment, use the [version of Visual Studio 2022 that GitHub Actions is using](https://github.com/actions/runner-images/tree/main/images/windows).
+  * If you don't use the Visual Studio IDE itself, you can download the [build tools](https://aka.ms/vs/17/release/vs_BuildTools.exe).
+  * If you do intend to use the Visual Studio IDE (not required for NVDA development), you can download [the community version](https://aka.ms/vs/17/release/vs_Community.exe).
+    * The Professional and Enterprise versions are also supported.
+    * Preview or insiders versions are *not* supported.
 * When installing Visual Studio, additional components must be included:
-	* You can automatically fetch these using [NVDAs .vsconfig](../../.vsconfig) using the [import feature of the VS installer](https://learn.microsoft.com/en-us/visualstudio/install/import-export-installation-configurations?view=vs-2022#import-a-configuration).
-	* In the list on the Workloads tab, in the Desktop grouping:
-		* Desktop development with C++.
-			* Once selected, ensure "C++ Clang tools for Windows" is included under the optional grouping.
-	* On the Individual components tab, ensure the following items are selected:
-		* Windows 11 SDK (10.0.26100.0)
-		* MSVC v143 - VS 2022 C++ ARM64/ARM64EC build tools
-		* MSVC v143 - VS 2022 C++ x64/x86 build tools
-		* C++ ATL for v143 build tools (x86 & x64)
-		* C++ ATL for v143 build tools (ARM64/ARM64EC)
+  * You can automatically fetch these using [NVDAs .vsconfig](../../.vsconfig) using the [import feature of the VS installer](https://learn.microsoft.com/en-us/visualstudio/install/import-export-installation-configurations?view=vs-2022#import-a-configuration).
+  * In the list on the Workloads tab, in the Desktop grouping:
+    * Desktop development with C++.
+      * Once selected, ensure "C++ Clang tools for Windows" is included under the optional grouping.
+  * On the Individual components tab, ensure the following items are selected:
+    * Windows 11 SDK (10.0.26100.x)
+    * MSVC v143 - VS 2022 C++ ARM64/ARM64EC build tools
+    * MSVC v143 - VS 2022 C++ x64/x86 build tools
+    * C++ ATL for v143 build tools (x86 & x64)
+    * C++ ATL for v143 build tools (ARM64/ARM64EC)
 
 ### Git Submodules
 
@@ -81,27 +85,25 @@ If you aren't sure, run `git submodule update` after every git pull, merge or ch
 
 #### Run time dependencies
 
-* [eSpeak NG](https://github.com/espeak-ng/espeak-ng), version 1.52.0
-* [Sonic](https://github.com/waywardgeek/sonic), commit `8694c596378c24e340c09ff2cd47c065494233f1`
-* [IAccessible2](https://wiki.linuxfoundation.org/accessibility/iaccessible2/start), commit `3d8c7f0b833453f761ded6b12d8be431507bfe0b`
-* [liblouis](http://www.liblouis.io/), version 3.33.0
-* [Unicode Common Locale Data Repository (CLDR)](http://cldr.unicode.org/), version 46.0
-* NVDA images and sounds
+* [eSpeak NG](https://github.com/espeak-ng/espeak-ng), commit `f1354994057fa9b85001675732e7fed2d437292b`
+* [Sonic](https://github.com/waywardgeek/sonic), commit `b93885dcb70aae50c6f76b0fe4e0868f029a077e`
+* [IAccessible2](https://wiki.linuxfoundation.org/accessibility/iaccessible2/start), commit `c9ae003d9c85eb707716928de97e055f5b77189c`
+* [liblouis](http://www.liblouis.io/), version 3.39.0
+* [Unicode Common Locale Data Repository (CLDR)](http://cldr.unicode.org/), version 48.2
 * [Adobe Acrobat accessibility interface, version XI](https://download.macromedia.com/pub/developer/acrobat/AcrobatAccess.zip)
-* [Microsoft Detours](https://github.com/microsoft/Detours), commit `4b8c659f549b0ab21cf649377c7a84eb708f5e68`
-* brlapi Python bindings, version 0.8.5 or later, distributed with [BRLTTY for Windows](https://brltty.app/download.html), version 6.6
+* [Microsoft Detours](https://github.com/microsoft/Detours), commit `9764cebcb1a75940e68fa83d6730ffaf0f669401`
+* brlapi Python bindings, version 0.8.7 or later, built with [GitHub Actions in the NV Access fork of the brlTTY repository](https://github.com/nvaccess/brltty/actions)
 * lilli.dll, version 2.1.0.0
-* Python interface to FTDI driver/chip
-* [Nullsoft Install System](https://nsis.sourceforge.io), version 3.08
-* [Java Access Bridge 32 bit, from Zulu Community OpenJDK build 17.0.9+8Zulu (17.46.19)](https://github.com/nvaccess/javaAccessBridge32-bin)
-* [Windows Implementation Libraries (WIL)](https://github.com/microsoft/wil/)
-* [NVDA DiffMatchPatch](https://github.com/codeofdusk/nvda_dmp)
+* [Nullsoft Install System](https://nsis.sourceforge.io), version 3.11
+* [Java Access Bridge 64 bit, from Zulu Community OpenJDK build 17.0.16+8 Zulu (17.60.17)](https://github.com/nvaccess/javaAccessBridge32-bin)
+* [Windows Implementation Library (WIL)](https://github.com/microsoft/wil/), commit `7cf41936c5b4ab79daf0d9437211380dc69fa958`
+* [cppjieba - Chinese word segmentation](https://github.com/yanyiwu/cppjieba), commit `b3602bef7d1f67521a61788a74fb5801a0e62cd3`
 
 #### Build time dependencies
 
 The following build time dependencies are included in the miscDeps git submodule:
 
-* xgettext and msgfmt from [GNU gettext](https://sourceforge.net/projects/cppcms/files/boost_locale/gettext_for_windows/)
+* xgettext and msgfmt from [GNU gettext](https://github.com/mlocati/gettext-iconv-windows/tags)
 
 #### VS Code
 
@@ -121,7 +123,7 @@ The following build time dependencies are included in the miscDeps git submodule
 ### Python dependencies
 
 NVDA and its build system also depend on an extensive list of Python packages.
-They are all listed with their specific versions in the `requirements.txt` file in the root of this repository.
+They are all listed with their specific versions in the `pyproject.toml` file in the root of this repository.
 However, the build system takes care of fetching these itself when needed.
 These packages will be installed into an isolated Python virtual environment within this repository, and will not affect your system-wide set of packages.
 
